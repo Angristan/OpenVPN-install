@@ -588,6 +588,7 @@ function installOpenVPN () {
 		DNS=${DNS:-1}
 		COMPRESSION_ENABLED=${COMPRESSION_ENABLED:-n}
 		CUSTOMIZE_ENC=${CUSTOMIZE_ENC:-n}
+		CREATE_CLIENT=${CREATE_CLIENT:-n}
 		CLIENT=${CLIENT:-client}
 		PASS=${PASS:-1}
 		CONTINUE=${CONTINUE:-y}
@@ -977,8 +978,19 @@ if [[ $COMPRESSION_ENABLED == "y"  ]]; then
 fi
 
 	# Generate the custom client.ovpn
-	newClient
-	echo "If you want to add more clients, you simply need to run this script another time!"
+	until [[ $CREATE_CLIENT =~ (y|n) ]]; do
+		read -rp"Create a new client? [y/n]: " -e -i n CREATE_CLIENT
+	done
+	if [[ $CREATE_CLIENT == "y" ]];then
+		newClient
+	fi
+
+echo ""
+echo ""
+echo ""
+echo ""
+echo "If you want to add more clients, you simply need to run this script another time!"
+
 }
 
 function newClient () {
@@ -1065,23 +1077,26 @@ function newClient () {
 }
 
 function revokeClient () {
-	NUMBEROFCLIENTS=$(tail -n +2 /etc/openvpn/easy-rsa/pki/index.txt | grep -c "^V")
-	if [[ "$NUMBEROFCLIENTS" = '0' ]]; then
+	until [[ "$CLIENT" =~ ^[a-zA-Z0-9_]+$ ]]; do
+		NUMBEROFCLIENTS=$(tail -n +2 /etc/openvpn/easy-rsa/pki/index.txt | grep -c "^V")
+		if [[ "$NUMBEROFCLIENTS" = '0' ]]; then
+			echo ""
+			echo "You have no existing clients!"
+			exit 1
+		fi
+
 		echo ""
-		echo "You have no existing clients!"
-		exit 1
-	fi
+		echo "Select the existing client certificate you want to revoke"
+		tail -n +2 /etc/openvpn/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | nl -s ') '
+		if [[ "$NUMBEROFCLIENTS" = '1' ]]; then
+			read -rp "Select one client [1]: " CLIENTNUMBER
+		else
+			read -rp "Select one client [1-$NUMBEROFCLIENTS]: " CLIENTNUMBER
+		fi
 
-	echo ""
-	echo "Select the existing client certificate you want to revoke"
-	tail -n +2 /etc/openvpn/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | nl -s ') '
-	if [[ "$NUMBEROFCLIENTS" = '1' ]]; then
-		read -rp "Select one client [1]: " CLIENTNUMBER
-	else
-		read -rp "Select one client [1-$NUMBEROFCLIENTS]: " CLIENTNUMBER
-	fi
+		CLIENT=$(tail -n +2 /etc/openvpn/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | sed -n "$CLIENTNUMBER"p)
+	done
 
-	CLIENT=$(tail -n +2 /etc/openvpn/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | sed -n "$CLIENTNUMBER"p)
 	cd /etc/openvpn/easy-rsa/
 	./easyrsa --batch revoke "$CLIENT"
 	EASYRSA_CRL_DAYS=3650 ./easyrsa gen-crl
@@ -1138,7 +1153,9 @@ function removeUnbound () {
 
 function removeOpenVPN () {
 	echo ""
-	read -rp "Do you really want to remove OpenVPN? [y/n]: " -e -i n REMOVE
+	until [[ $REMOVE =~ (y|n) ]]; do
+		read -rp "Do you really want to remove OpenVPN? [y/n]: " -e -i n REMOVE
+	done
 	if [[ "$REMOVE" = 'y' ]]; then
 		# Get OpenVPN port from the configuration
 		PORT=$(grep '^port ' /etc/openvpn/server.conf | cut -d " " -f 2)
